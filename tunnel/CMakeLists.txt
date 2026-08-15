@@ -12,7 +12,7 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 
 # Opt-in AddressSanitizer + UBSan + LeakSanitizer:
 #   cmake -S tunnel -B tunnel/build-asan -DSDTP_SANITIZE=ON
-#   cmake --build tunnel/build-asan && ctest --test-dir tunnel/build-asan
+#   cmake --build tunnel/build-asan
 option(SDTP_SANITIZE "Build with Address/UB/Leak sanitizers" OFF)
 if(SDTP_SANITIZE)
     add_compile_options(-fsanitize=address,undefined,leak -fno-sanitize-recover=all -g)
@@ -39,37 +39,45 @@ target_include_directories(dh-tunnel PRIVATE include ${SODIUM_INCLUDE_DIRS})
 target_link_libraries(dh-tunnel PRIVATE ${SODIUM_LIBRARIES})
 target_compile_options(dh-tunnel PRIVATE ${SODIUM_CFLAGS_OTHER})
 
-enable_testing()
-add_executable(test_protocol
-    tests/test_protocol.c
-    src/crypto.c
-    src/handshake.c
-    src/data.c
-    src/hub_route.c
-    src/net.c
-    src/util.c
-)
-target_include_directories(test_protocol PRIVATE include ${SODIUM_INCLUDE_DIRS})
-target_link_libraries(test_protocol PRIVATE ${SODIUM_LIBRARIES})
-target_compile_options(test_protocol PRIVATE ${SODIUM_CFLAGS_OTHER})
-add_test(NAME protocol COMMAND test_protocol)
-
-add_executable(bench_recv
-    tests/bench_recv.c
-    src/net.c
-)
-target_include_directories(bench_recv PRIVATE include ${SODIUM_INCLUDE_DIRS})
-add_test(NAME bench_recv COMMAND bench_recv 2000)
-
-add_executable(fuzz_packets
-    tests/fuzz_packets.c
-    src/crypto.c
-    src/handshake.c
-    src/data.c
-    src/hub_route.c
-    src/util.c
-)
-target_include_directories(fuzz_packets PRIVATE include ${SODIUM_INCLUDE_DIRS})
-target_link_libraries(fuzz_packets PRIVATE ${SODIUM_LIBRARIES})
-target_compile_options(fuzz_packets PRIVATE ${SODIUM_CFLAGS_OTHER})
-add_test(NAME fuzz COMMAND fuzz_packets 50000)
+# Protocol unit tests / fuzzer / bench — enable when tunnel/tests/ is present.
+option(SDTP_BUILD_TESTS "Build protocol unit tests, fuzzer, and recv bench" OFF)
+if(SDTP_BUILD_TESTS)
+    enable_testing()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_protocol.c")
+        add_executable(test_protocol
+            tests/test_protocol.c
+            src/crypto.c
+            src/handshake.c
+            src/data.c
+            src/hub_route.c
+            src/net.c
+            src/util.c
+        )
+        target_include_directories(test_protocol PRIVATE include ${SODIUM_INCLUDE_DIRS})
+        target_link_libraries(test_protocol PRIVATE ${SODIUM_LIBRARIES})
+        target_compile_options(test_protocol PRIVATE ${SODIUM_CFLAGS_OTHER})
+        add_test(NAME protocol COMMAND test_protocol)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/bench_recv.c")
+        add_executable(bench_recv
+            tests/bench_recv.c
+            src/net.c
+        )
+        target_include_directories(bench_recv PRIVATE include ${SODIUM_INCLUDE_DIRS})
+        add_test(NAME bench_recv COMMAND bench_recv 2000)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz_packets.c")
+        add_executable(fuzz_packets
+            tests/fuzz_packets.c
+            src/crypto.c
+            src/handshake.c
+            src/data.c
+            src/hub_route.c
+            src/util.c
+        )
+        target_include_directories(fuzz_packets PRIVATE include ${SODIUM_INCLUDE_DIRS})
+        target_link_libraries(fuzz_packets PRIVATE ${SODIUM_LIBRARIES})
+        target_compile_options(fuzz_packets PRIVATE ${SODIUM_CFLAGS_OTHER})
+        add_test(NAME fuzz COMMAND fuzz_packets 50000)
+    endif()
+endif()
