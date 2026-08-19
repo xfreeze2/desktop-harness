@@ -96,7 +96,9 @@ If a daemon is running, the CLI auto-routes scripts through it (faster).
   `ControlStopped` so the script cannot keep driving the Mac. After a stop,
   do not continue the task. On a later user request, call
   `enable_agent_cursor(True)` or `resume_control()` first.
-- Clipboard: `clipboard_get()` / `clipboard_set(text)` — plain text only  
+- Clipboard: `clipboard_get()` / `clipboard_set(text)` — plain text only.
+  Both are gated: a Stop click aborts them, and both refuse while a password
+  manager is frontmost (same rule as an unscoped screenshot).  
 - Meta: `wait`, `wait_stable`, **`wait_for(text, app?, timeout=3)`** — poll AX
   until a control appears (dialogs/sheets). Not a screenshot loop.
   `verify(note, app?)` — screenshot + AX only when failure would be silent.

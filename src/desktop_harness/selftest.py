@@ -225,10 +225,42 @@ def run_selftest() -> int:
             raise AssertionError("click should raise ControlStopped")
         except p.ControlStopped:
             pass
-        # reads still work while stopped
+        try:
+            H.clipboard_get()
+            raise AssertionError("clipboard_get should raise ControlStopped")
+        except p.ControlStopped:
+            pass
+        try:
+            H.clipboard_set("should-not-land")
+            raise AssertionError("clipboard_set should raise ControlStopped")
+        except p.ControlStopped:
+            pass
+        # AX reads still work while stopped
         assert H.frontmost_app() is not None
         H.resume_control()
         assert not p.stopped()
+
+    def _clipboard_sensitive_frontmost():
+        from . import windows as W
+        H.resume_control()
+        real = W.frontmost_app
+        W.frontmost_app = lambda: {
+            "name": "1Password",
+            "bundle_id": "com.1password.1password",
+        }
+        try:
+            try:
+                H.clipboard_get()
+                raise AssertionError("clipboard_get should refuse 1Password")
+            except PermissionError:
+                pass
+            try:
+                H.clipboard_set("should-not-land")
+                raise AssertionError("clipboard_set should refuse 1Password")
+            except PermissionError:
+                pass
+        finally:
+            W.frontmost_app = real
 
     def _now_playing_shape():
         info = H.now_playing()
@@ -280,6 +312,7 @@ def run_selftest() -> int:
         ("refuse weak click", _refuse_weak_click),
         ("refuse human pointer", _refuse_human_pointer),
         ("user stop gate", _user_stop_gate),
+        ("clipboard refuses sensitive frontmost", _clipboard_sensitive_frontmost),
         ("now_playing shape", _now_playing_shape),
         ("menubar skipped by default", _menubar_skipped_by_default),
         ("monitor follow Ghostty", _monitor_follow_textedit),
@@ -349,7 +382,139 @@ def run_selftest() -> int:
         # calls after selftest went cold/slow. Restart is the test;
         # teardown that disables the product is not.
 
+    def _isolated_daemon():
+        """Throwaway daemon on a private socket — does not touch the user one."""
+        import json
+        import os
+        import shutil
+        import socket
+        import stat
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        tmp = Path(tempfile.mkdtemp(prefix="dh-dtest-"))
+        sock = tmp / "d.sock"
+        token_path = tmp / "d.token"
+        env = {
+            **os.environ,
+            "DH_SOCKET": str(sock),
+            "DH_TOKEN_PATH": str(token_path),
+            "DH_AUTO_DAEMON": "0",
+            "DH_NO_DAEMON": "1",
+            "DH_RECV_TIMEOUT": "0.6",
+        }
+        env.pop("DH_IN_DAEMON", None)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "desktop_harness.run", "daemon", "serve"],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+        def _req(payload: dict, timeout: float = 3.0) -> dict:
+            tok = token_path.read_text().strip()
+            data = (json.dumps({**payload, "token": tok}) + "\n").encode()
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(str(sock))
+                s.sendall(data)
+                buf = b""
+                while b"\n" not in buf:
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+            if not buf:
+                raise RuntimeError("empty daemon reply")
+            return json.loads(buf.decode())
+
+        try:
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    out = proc.stdout.read().decode() if proc.stdout else ""
+                    raise AssertionError(f"test daemon died: {out}")
+                if sock.exists() and token_path.exists():
+                    try:
+                        ping = _req({"op": "ping"}, timeout=1)
+                        if ping.get("pong"):
+                            break
+                    except Exception:
+                        pass
+                time.sleep(0.05)
+            else:
+                raise AssertionError("test daemon did not start")
+
+            mode = stat.S_IMODE(token_path.stat().st_mode)
+            assert mode == 0o600, f"token mode {oct(mode)}, expected 0o600"
+            sock_mode = stat.S_IMODE(sock.stat().st_mode)
+            assert sock_mode == 0o600, f"socket mode {oct(sock_mode)}, expected 0o600"
+
+            hung = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            hung.settimeout(4)
+            hung.connect(str(sock))
+            hung.sendall(b"no-newline-should-not-wedge")
+            t0 = time.time()
+            ping = _req({"op": "ping"}, timeout=4)
+            hung_ms = time.time() - t0
+            hung.close()
+            assert ping.get("pong"), ping
+            assert hung_ms < 3.0, f"hung client blocked accept for {hung_ms:.1f}s"
+
+            busy = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            busy.settimeout(6)
+            busy.connect(str(sock))
+            tok = token_path.read_text().strip()
+            busy.sendall(
+                (json.dumps({
+                    "op": "exec",
+                    "code": "import time; time.sleep(1.2)",
+                    "token": tok,
+                }) + "\n").encode()
+            )
+            time.sleep(0.15)
+            proc2 = subprocess.Popen(
+                [sys.executable, "-m", "desktop_harness.run", "daemon", "serve"],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                out2, _ = proc2.communicate(timeout=4)
+            except subprocess.TimeoutExpired:
+                proc2.kill()
+                raise AssertionError("second daemon start hung instead of refusing")
+            assert proc2.returncode not in (0, None), (
+                f"second start should refuse, got rc={proc2.returncode} {out2!r}"
+            )
+            assert b"already running" in out2, out2
+            buf = b""
+            while b"\n" not in buf:
+                chunk = busy.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            busy.close()
+            done = json.loads(buf.decode())
+            assert done.get("ok"), done
+            assert _req({"op": "ping"}).get("pong")
+        finally:
+            if proc.poll() is None:
+                try:
+                    _req({"op": "quit"}, timeout=1)
+                except Exception:
+                    proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     check("daemon bg + exec", _daemon_roundtrip)
+    check("daemon lock + hung client", _isolated_daemon)
 
     print()
     if fails:

@@ -463,11 +463,24 @@ def menu_click(*path: str, app: str | int | None = None) -> dict[str, Any]:
 
 
 def clipboard_get() -> str:
-    """Plain text from the Mac clipboard. Empty string if none."""
+    """Plain text from the Mac clipboard. Empty string if none.
+
+    Gated like an unscoped screenshot: a password manager's whole flow is
+    "copy the secret to the clipboard", so reading it while one is
+    frontmost is the same risk class ``capture.py`` already refuses. A
+    Stop click aborts this too — it was the only helper that kept
+    working after the Working chip.
+    """
     from AppKit import NSPasteboard, NSPasteboardTypeString
+    from . import safety as _safety
+    _gate()
+    _safety.check_frontmost_allowed()
     pb = NSPasteboard.generalPasteboard()
     val = pb.stringForType_(NSPasteboardTypeString)
-    return str(val) if val else ""
+    out = str(val) if val else ""
+    # Length only — never the contents.
+    _safety.audit("clipboard_get", {"n": len(out)})
+    return out
 
 
 def clipboard_set(text: str) -> None:
@@ -475,6 +488,7 @@ def clipboard_set(text: str) -> None:
     from AppKit import NSPasteboard, NSPasteboardTypeString
     from . import safety as _safety
     _gate()
+    _safety.check_frontmost_allowed()
     _safety.audit("clipboard_set", {"n": len(text)})
     pb = NSPasteboard.generalPasteboard()
     pb.clearContents()

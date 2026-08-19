@@ -6,9 +6,9 @@
 
 | Control | Behavior |
 |---------|----------|
-| `DH_ALLOW_SENSITIVE` | Default off. Blocks open/focus, mutations (click/type/hotkey), and **screenshots** while password-manager-like apps are targeted or frontmost — a screenshot of a visible password is as much a leak as clicking into the field. |
-| Audit log | `~/.desktop-harness/audit.jsonl` for key mutations |
-| Warm daemon | Unix socket **mode 0600** + **token** at `~/.desktop-harness/daemon.token` (0600). Requests without the token are rejected. |
+| `DH_ALLOW_SENSITIVE` | Default off. Blocks open/focus, mutations (click/type/hotkey), **screenshots**, and **clipboard get/set** while password-manager-like apps are targeted or frontmost — the clipboard is where a password manager puts the secret. |
+| Audit log | `~/.desktop-harness/audit.jsonl` for key mutations (clipboard records length only, never contents) |
+| Warm daemon | Unix socket **mode 0600** + **token** at `~/.desktop-harness/daemon.token` (0600 from the first byte). Requests without the token are rejected. Single-instance via **flock** on the pid file (a ping is not used — a busy daemon cannot answer one). Accepted connections time out so a hang before auth cannot wedge the Stop chip. |
 
 The daemon is a **local privileged exec endpoint** (it can run harness scripts with Accessibility). Only your user account should read the token/socket. Do not run the daemon on shared multi-user machines without understanding this.
 

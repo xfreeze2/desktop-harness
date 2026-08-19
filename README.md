@@ -18,7 +18,7 @@ You → Grok Build (or another agent) → desktop-harness → your Mac
 | **How it sees** | **Accessibility tree first**, screenshots only as fallback |
 | **How it acts** | Real system mouse + keyboard (`CGEvent`) + AX press |
 | **Platform** | macOS (Sequoia+ recommended) |
-| **Status** | v0.6.4 |
+| **Status** | v0.6.5 |
 | **Built with** | [Grok Build](https://grok.com) |
 
 ---
@@ -222,7 +222,7 @@ Architecture notes: [DESIGN.md](./DESIGN.md)
 | `grab_frame` / `pixel` / `find_color` / `scan_column` | RAM pixels, any window (optional region) |
 | `wait_for` | Poll AX until a control appears |
 | `menu_click` | Exact menu path (`File`, `Save`) |
-| `clipboard_get` / `clipboard_set` | Plain text clipboard |
+| `clipboard_get` / `clipboard_set` | Plain text clipboard (Stop + sensitive-app gated) |
 | `keys_hold` / `tap` | Hold keys; instant click |
 | `run_loop` | In-process see→act at N Hz (any task) |
 
