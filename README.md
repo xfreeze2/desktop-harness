@@ -18,7 +18,7 @@ You → Grok Build (or another agent) → desktop-harness → your Mac
 | **How it sees** | **Accessibility tree first**, screenshots only as fallback |
 | **How it acts** | Real system mouse + keyboard (`CGEvent`) + AX press |
 | **Platform** | macOS (Sequoia+ recommended) |
-| **Status** | v0.6.5 |
+| **Status** | v0.6.6 |
 | **Built with** | [Grok Build](https://grok.com) |
 
 ---
@@ -162,7 +162,7 @@ Env knobs:
 | `DH_SAFE=1` (default) | Agent policy defaults |
 | `DH_ALLOW_SENSITIVE=1` | Allow sensitive app names / overrides |
 
-**Presence (default on):** **one** system cursor + ice halo while moving; brief **amber** halo on click; ice frame on the driven window; bottom **Working · Stop** chip (click to abort). No second fake arrow. Off: `DH_PRESENCE=0`.
+**Presence (default on):** **one** system cursor + ice halo while moving; brief **amber** halo on click; ice frame on the driven window; bottom **status · Stop** chip (app name + Stop; click Stop to abort). Mutating helpers auto-show the chip — including AX-only paths. Prefer `begin_control` / `end_control` for multi-step turns. Off: `DH_PRESENCE=0`.
 
 **After a visual build:** run it, use it, screenshot, **read the PNG**, fix, at most 3 rounds. See `docs/OBSERVE-LOOP.md`. Not for everyday click/type.
 
@@ -217,7 +217,7 @@ Architecture notes: [DESIGN.md](./DESIGN.md)
 | `mouse_pos` / `move_to` / `wiggle` / `click` / `drag` / `scroll` | Real pointer |
 | `type_text` / `hotkey` / `key` | Keyboard |
 | `screenshot` | Window/display capture |
-| `enable_agent_cursor` | Ice halo + frame + Working · Stop chip |
+| `enable_agent_cursor` / `begin_control` / `end_control` | Ice halo + frame + status\|Stop chip |
 | `resume_control` | Allow control again after a Stop click |
 | `grab_frame` / `pixel` / `find_color` / `scan_column` | RAM pixels, any window (optional region) |
 | `wait_for` | Poll AX until a control appears |

@@ -56,9 +56,43 @@ win_to_global = _windows.win_to_global
 chip_frame = _presence.chip_frame
 
 
-def _gate() -> None:
-    """Abort if the user clicked Stop on the Working chip."""
+def _gate(*, show_presence: bool = True) -> None:
+    """Abort if the user clicked Stop; optionally surface the control chip.
+
+    AX-only mutations (click_text / set_field / hotkey) never moved the
+    pointer, so the old auto-presence-on-warp path left the Mac driven
+    with no visible Stop. Ensuring presence here closes that hole without
+    forcing a second cursor.
+    """
+    if show_presence:
+        try:
+            _presence.ensure()
+        except Exception:
+            pass
     _presence.assert_running()
+
+
+def begin_control(app: str | int | None = None) -> bool:
+    """Start a control session — ice halo + frame + status|Stop chip.
+
+    Prefer this at the start of a multi-step GUI turn. Everyday single
+    mutations also auto-show presence via ``_gate``; call this when you
+    want the chip up *before* the first action (and optionally ring ``app``).
+    """
+    _presence.clear_stop()
+    ok = enable_agent_cursor(True)
+    if ok and app is not None and not isinstance(app, int):
+        try:
+            _presence.set_driven(str(app))
+            _presence.ring_window(str(app))
+        except Exception:
+            pass
+    return bool(ok)
+
+
+def end_control() -> None:
+    """End a control session — hide presence and release held keys."""
+    hide_agent_presence()
 
 
 def resume_control() -> None:
@@ -287,18 +321,20 @@ def now_playing(app: str | int | None = None) -> dict[str, Any]:
 def type_text(*args, **kwargs):
     from . import safety as _safety
     _safety.check_frontmost_allowed()
-    _safety.audit("type_text", {"n": len(args[0]) if args else 0})
+    text = args[0] if args else kwargs.get("text", "")
+    _safety.audit("type_text", {"n": len(text) if text else 0})
     out = _input.type_text(*args, **kwargs)
     _watch("type")
     return out
 
 
 def enable_agent_cursor(enabled: bool = True):
-    """Show / hide agent presence (ice halo + Working · Stop chip).
+    """Show / hide agent presence (ice halo + status|Stop chip).
 
     Design: ONE real system cursor + soft glow halo (never a second arrow).
     Ice while moving; brief amber flash on click. DH_PRESENCE=0 to disable.
-    Click the bottom chip to stop the agent immediately.
+    Click **Stop** on the control chip to abort immediately.
+    Prefer ``begin_control`` / ``end_control`` for multi-step sessions.
     """
     try:
         if not enabled:
@@ -473,7 +509,7 @@ def clipboard_get() -> str:
     """
     from AppKit import NSPasteboard, NSPasteboardTypeString
     from . import safety as _safety
-    _gate()
+    _gate(show_presence=False)
     _safety.check_frontmost_allowed()
     pb = NSPasteboard.generalPasteboard()
     val = pb.stringForType_(NSPasteboardTypeString)
@@ -487,7 +523,7 @@ def clipboard_set(text: str) -> None:
     """Put plain text on the Mac clipboard."""
     from AppKit import NSPasteboard, NSPasteboardTypeString
     from . import safety as _safety
-    _gate()
+    _gate(show_presence=False)
     _safety.check_frontmost_allowed()
     _safety.audit("clipboard_set", {"n": len(text)})
     pb = NSPasteboard.generalPasteboard()
@@ -521,13 +557,19 @@ def run_plan(
     | ``click`` | ``x``, ``y`` (global) or ``wx``, ``wy`` (window-local) |
     | ``drag`` | ``x1,y1,x2,y2`` or ``wx1,wy1,wx2,wy2`` |
     | ``click_text`` | ``text``, optional ``app``, ``exact`` |
+    | ``set_field`` | ``text`` (label), ``value`` |
     | ``type_text`` | ``text`` |
     | ``hotkey`` | ``keys`` (list) |
     | ``key`` | ``name`` |
+    | ``scroll`` | ``dx``, ``dy`` (optional ``x``, ``y``) |
+    | ``tap`` | ``x``, ``y`` (instant; optional ``wx``/``wy``) |
     | ``wait`` | ``seconds`` |
     | ``screenshot`` | optional ``app`` |
     | ``labels`` | optional ``app``, ``limit`` |
-    | ``hide_presence`` | — |
+    | ``menu_click`` | ``path`` list |
+    | ``wait_for`` | ``text``, optional ``timeout``, ``exact``, ``role`` |
+    | ``begin_control`` / ``end_control`` / ``hide_presence`` | session |
+    | ``clipboard_get`` / ``clipboard_set`` | plain text |
 
     When ``app`` is set on the plan, window-local coords use that frame once
     (cached for the whole plan). Returns a list of ``{op, ok, result|error}``.
@@ -605,6 +647,12 @@ def run_plan(
                     app=step.get("app", plan_app),
                     exact=bool(step.get("exact", False)),
                 )
+            elif op == "set_field":
+                entry["result"] = set_field(
+                    step.get("text") or step.get("name") or step.get("label") or "",
+                    step.get("value") or "",
+                    app=step.get("app", plan_app),
+                )
             elif op == "type_text":
                 entry["result"] = type_text(step["text"])
             elif op == "hotkey":
@@ -614,6 +662,28 @@ def run_plan(
                 entry["result"] = hotkey(*keys)
             elif op == "key":
                 entry["result"] = key(step.get("name") or step.get("key"))
+            elif op == "scroll":
+                entry["result"] = scroll(
+                    int(step.get("dx", 0)),
+                    int(step.get("dy", step.get("ticks", 3))),
+                    x=step.get("x"),
+                    y=step.get("y"),
+                )
+            elif op == "tap":
+                if "wx" in step or "wy" in step:
+                    fr = _frame_for(step.get("app"))
+                    gx, gy = win_to_global(
+                        float(step.get("wx", 0)),
+                        float(step.get("wy", 0)),
+                        step.get("app", plan_app),
+                        frame=fr,
+                    )
+                    entry["result"] = tap(gx, gy, double=bool(step.get("double")))
+                else:
+                    entry["result"] = tap(
+                        float(step["x"]), float(step["y"]),
+                        double=bool(step.get("double")),
+                    )
             elif op == "wait":
                 wait(float(step.get("seconds", step.get("s", 0.3))))
                 entry["result"] = {"waited": step.get("seconds", 0.3)}
@@ -626,8 +696,10 @@ def run_plan(
                     step.get("app", plan_app),
                     limit=int(step.get("limit", 30)),
                 )
-            elif op in ("hide_presence", "hide_agent_presence"):
-                hide_agent_presence()
+            elif op in ("begin_control", "enable_agent_cursor"):
+                entry["result"] = begin_control(step.get("app", plan_app))
+            elif op in ("end_control", "hide_presence", "hide_agent_presence"):
+                end_control()
                 entry["result"] = True
             elif op == "window_frame":
                 entry["result"] = window_frame(step.get("app", plan_app))
@@ -854,6 +926,12 @@ def click_text(
     if prefer_ax_press and el is not None and _ax_pressable(role_name):
         if _ax.press_element(el):
             wait_stable()
+            if app is not None and not isinstance(app, int):
+                try:
+                    _presence.set_driven(str(app))
+                    _presence.ring_window(str(app))
+                except Exception:
+                    pass
             return {k: v for k, v in hit.items() if not k.startswith("_")}
     frame = hit.get("frame")
     if not frame:

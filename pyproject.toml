@@ -1,6 +1,6 @@
 [project]
 name = "desktop-harness"
-version = "0.6.5"
+version = "0.6.6"
 description = "Agent hands for your Mac — AX-first desktop control CLI for Grok Build and coding agents"
 requires-python = ">=3.10"
 dependencies = [

@@ -53,9 +53,18 @@ def set_overlay(overlay) -> None:
 
 
 def _assert_running(*, pump: bool = True) -> None:
-    """Honor a Stop click on the Working chip before mutating the Mac."""
+    """Honor a Stop click; surface the control chip on HID mutations.
+
+    Without ensure(), AX-free paths that somehow skip helpers._gate would
+    still drive the Mac with no visible Stop. Cheap when already active.
+    """
     try:
         from . import presence
+        if pump:
+            try:
+                presence.ensure()
+            except Exception:
+                pass
         presence.assert_running(pump=pump)
     except Exception as e:
         from .presence import ControlStopped
@@ -496,9 +505,33 @@ def media_key(name: str = "playpause", *, settle: float = 0.05) -> str:
     return name
 
 
-def type_text(text: str, *, delay: float = 0.008):
-    """Type unicode via CGEvent keyboard with unicode string."""
+def type_text(text: str, *, delay: float = 0.008, paste_above: int = 48):
+    """Type unicode via CGEvent keyboard with unicode string.
+
+    Long strings paste via clipboard (cmd+v) — same capability, far less
+    per-character HID cost. Short strings still key-by-key so apps that
+    watch individual key events keep working. ``paste_above=0`` forces
+    key-by-key always.
+    """
     _assert_running()
+    if paste_above and len(text) >= int(paste_above) and "\n" not in text and "\t" not in text:
+        # Preserve prior clipboard; restore after paste.
+        try:
+            from AppKit import NSPasteboard, NSPasteboardTypeString
+            pb = NSPasteboard.generalPasteboard()
+            prev = pb.stringForType_(NSPasteboardTypeString)
+            prev = str(prev) if prev else None
+            pb.clearContents()
+            if not pb.setString_forType_(text, NSPasteboardTypeString):
+                raise RuntimeError("clipboard paste path failed")
+            hotkey("cmd", "v", settle=0.04)
+            if prev is not None:
+                pb.clearContents()
+                pb.setString_forType_(prev, NSPasteboardTypeString)
+            return
+        except Exception:
+            # Fall through to per-char typing.
+            pass
     for i, ch in enumerate(text):
         if ch == "\n":
             key("return")

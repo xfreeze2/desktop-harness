@@ -230,6 +230,10 @@ def find_app(name_or_bundle: str | int) -> dict[str, Any] | None:
         starts.sort(key=lambda a: len(a["name"]))
         return starts[0]
     # 3) substring — prefer shortest name containing q (most specific)
+    # Refuse very short queries: "a" / "te" match almost everything and
+    # used to return the first alphabetical hit (wrong app, wrong clicks).
+    if len(q) < 3:
+        return None
     subs = [a for a in apps if q in a["name"].lower() or q in a["bundle_id"].lower()]
     if subs:
         subs.sort(key=lambda a: (len(a["name"]), a["name"].lower()))

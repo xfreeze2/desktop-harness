@@ -32,8 +32,8 @@ Take many frames while moving so lag/desync shows up:
 - [ ] **One** cursor only — soft halo around system pointer, never a second arrow  
 - [ ] Halo locked to warp target (no “dragging a second cursor”)  
 - [ ] Move = ice ring; click = brief amber then ice  
-- [ ] Chip sits **outside** the driven window; only the pill is hittable  
-- [ ] Chip reads **Working · Stop** and a click aborts control  
+- [ ] Chip sits **outside** the driven window; only the **Stop** zone is hittable  
+- [ ] Chip shows driven **app name** (or "Agent") and a clear **Stop** — not one ambiguous label  
 - [ ] Multiple frames reviewed, not one still
 - [ ] **A click lands on a different app mid-sequence, and the demo keeps
       going for several more seconds afterward.** Confirm via frames taken

@@ -1,10 +1,11 @@
-# Release checklist (v0.4)
+# Release checklist (v0.6.6)
 
 ## Must pass
 
 - [ ] `desktop-harness --doctor` all PASS  
 - [ ] `desktop-harness selftest` all PASS  
-- [ ] `desktop-harness demo` — mouse moves, TextEdit types (human watches)  
+- [ ] `desktop-harness demo` — mouse moves, TextEdit types; status|Stop chip visible  
+- [ ] AX-only `click_text` still shows the Stop chip (no mouse move required)  
 - [ ] No secrets in repo  
 - [ ] `git push` to https://github.com/xfreeze2/desktop-harness  
 
