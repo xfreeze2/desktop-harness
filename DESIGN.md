@@ -1,6 +1,6 @@
 # desktop-harness — design
 
-**Status:** v0.4  
+**Status:** v0.6.6  
 **Built with:** Grok Build  
 **Goal:** Let a coding agent control a real Mac desktop — fast, precise, local — without a screenshot→vision loop on every step.
 

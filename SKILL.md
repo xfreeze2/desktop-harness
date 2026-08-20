@@ -88,14 +88,23 @@ If a daemon is running, the CLI auto-routes scripts through it (faster).
   (`hold`, `key`, `tap`, `tap_win`, `scroll`, `stop`). One process. Stop chip still aborts.
 - **Batch:** `run_plan([{op, ...}, ...], app=?)` — many steps in one process (prefer over N CLI calls)
 - **Stage (web, off-to-the-side):** `open_stage(url)` / `close_stage()` — small dedicated Chrome + a live picture **only** for that window. Do **not** `show_monitor()` when the real app is already on screen.
-- Presence (agentic only): ice ring on the cursor, ice **frame** around the window being driven, small **Working · Stop** chip. Off: `DH_PRESENCE=0`. No second picture of an on-screen app.
-  `enable_agent_cursor(True/False)`, `hide_agent_presence()` when a sequence ends
-  (also self-clears after ~20s of no harness activity, so a forgotten call
-  isn't permanent — call it anyway when you know you're done).
-  **The chip is a real Stop control.** A click hides presence and raises
-  `ControlStopped` so the script cannot keep driving the Mac. After a stop,
-  do not continue the task. On a later user request, call
-  `enable_agent_cursor(True)` or `resume_control()` first.
+- **Control session:** ice ring + ice frame + status|**Stop** chip (shows the driven app).
+  Mutating helpers auto-show presence so Stop is always hittable — including
+  AX-only paths that never move the mouse. Prefer an explicit session for
+  multi-step turns:
+
+  ```python
+  begin_control("Notes")   # chip + ring up before the first click
+  click_text("All iCloud")
+  # …
+  end_control()            # hide when done (also auto-clears ~20s idle)
+  ```
+
+  Off: `DH_PRESENCE=0`. No second picture of an on-screen app.
+  `enable_agent_cursor` / `hide_agent_presence` still work (aliases).
+  **Stop is a real abort.** It hides presence and raises `ControlStopped`.
+  After a stop, do not continue. On a later user request, call
+  `begin_control()` or `resume_control()` first.
 - Clipboard: `clipboard_get()` / `clipboard_set(text)` — plain text only.
   Both are gated: a Stop click aborts them, and both refuse while a password
   manager is frontmost (same rule as an unscoped screenshot).  
@@ -103,11 +112,20 @@ If a daemon is running, the CLI auto-routes scripts through it (faster).
   until a control appears (dialogs/sheets). Not a screenshot loop.
   `verify(note, app?)` — screenshot + AX only when failure would be silent.
 
+## Which loop to use (efficiency + capability)
+
+| Situation | Use |
+|-----------|-----|
+| One or two AX actions | `click_text` / `set_field` / `menu_click` (daemon auto) |
+| Many steps, same turn | **`run_plan([...])`** — one process, no N CLI spawns |
+| Next **frame** is the action | **`run_loop(step, hz=…)`** — never screenshot→chat→click |
+| Just built visible UI | Observe loop (`docs/OBSERVE-LOOP.md`) — not everyday clicks |
+
 ## Live view — only when they cannot already see it
 
 If Notes / Settings / YT Music is **on screen**, do not open a second
 picture of it. The user is already watching. Presence (ice ring +
-**Working · Stop**) is enough.
+status|**Stop**) is enough.
 
 Use `open_stage(url)` **only** for a web task that should not take over
 the user’s Chrome or the whole display. That helper opens a small
@@ -116,9 +134,9 @@ dedicated window *and* the live view of *that* window — then
 
 ```python
 # everyday: just control the real app
-open_app("Notes")
+begin_control("Notes")
 click_text("All iCloud")
-hide_agent_presence()
+end_control()
 
 # web, off to the side:
 open_stage("https://example.com")
@@ -247,7 +265,7 @@ app UI, demo), you are not done until you have used it and looked:
 2. Use it like a person (`labels` / `click_text` / `wait_for`).
 3. `screenshot(app=…)` or `screencapture` — **read the PNG**.
 4. Fix only real defects. Repeat at most twice more.
-5. `hide_agent_presence()`. Claim only what the last capture shows.
+5. `end_control()` (or `hide_agent_presence()`). Claim only what the last capture shows.
 
 Presence / motion extras: `docs/OBSERVE-LOOP.md`.
 

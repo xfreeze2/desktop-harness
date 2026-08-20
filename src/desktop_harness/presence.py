@@ -4,7 +4,8 @@ Design rules (from observe loop):
   - NEVER draw a second pointer shape (dual-cursor lag is unusable)
   - System cursor stays; we only draw a soft HALO locked to the warp target
   - Move = cool ice ring; click = brief amber flash, then ice again
-  - Large glass island above the Dock (discoverable; not under the notch)
+  - Control session chip: status + explicit Stop (not one ambiguous label)
+  - Chip sits outside the driven window; only the Stop zone is hittable
 
 DH_PRESENCE=0 disables everything.
 """
@@ -24,10 +25,13 @@ _mode = "blue"  # blue | red
 _frame_target: tuple[float, float, float, float] | None = None  # x,y,w,h CG
 _stopped = False
 _stop_source: str | None = None
+_driven_label: str = ""  # short name shown on the chip
+_session_t0: float = 0.0
+_pip_phase: int = 0
 
 
 class ControlStopped(RuntimeError):
-    """User took the Mac back — Working chip was clicked."""
+    """User took the Mac back — Stop on the control chip was clicked."""
 
 # Grok ice — same family as the cursor halo
 _ICE = (0.45, 0.78, 1.00)
@@ -182,7 +186,7 @@ def _cg_to_center_origin(cg_x: float, cg_y: float, size: float) -> tuple[float, 
 
 
 class _StopChipView:
-    """Clickable Working chip — click anywhere on the pill to stop control."""
+    """Control chip — only the Stop zone is hittable (status area is click-through)."""
     _cls = None
 
     @classmethod
@@ -202,12 +206,15 @@ class _StopChipView:
                 request_stop("chip")
 
             def hitTest_(self, point):
-                # Only the dark pill — the bloom/pad must not steal
-                # clicks meant for the app underneath.
-                pf = getattr(self, "pill_frame", None)
-                if not pf:
+                # Only the Stop zone — status/label must not steal clicks
+                # meant for the app underneath.
+                sf = getattr(self, "stop_frame", None)
+                if not sf:
+                    # Back-compat if an older layout forgot stop_frame
+                    sf = getattr(self, "pill_frame", None)
+                if not sf:
                     return None
-                x, y, w, h = pf
+                x, y, w, h = sf
                 try:
                     px, py = float(point.x), float(point.y)
                 except Exception:
@@ -354,10 +361,15 @@ def _place_halo(cg_x: float, cg_y: float, size: float | None = None):
 
 
 def _make_banner():
+    """Build the control session chip: status | Stop.
+
+    Two zones — not one ambiguous "Working · Stop" string. Status is
+    click-through; only Stop aborts. Driven-app name when we know it.
+    """
     global _banner
     from AppKit import (
         NSColor, NSMakeRect, NSPanel, NSTextField, NSFont, NSView,
-        NSWindowStyleMaskBorderless, NSCenterTextAlignment,
+        NSWindowStyleMaskBorderless, NSLeftTextAlignment, NSCenterTextAlignment,
     )
     from Quartz import CGColorCreateGenericRGB
 
@@ -384,101 +396,155 @@ def _make_banner():
 
     Root = _StopChipView.view_class()
     root = Root.alloc().initWithFrame_(NSMakeRect(0, 0, pw, ph))
-    root.pill_frame = (pad, pad, w, h)
     root.setWantsLayer_(True)
     if root.layer() is not None:
         root.layer().setBackgroundColor_(CGColorCreateGenericRGB(0, 0, 0, 0))
 
-    bloom = NSView.alloc().initWithFrame_(
-        NSMakeRect(pad - 10, pad - 8, w + 20, h + 16)
-    )
-    bloom.setWantsLayer_(True)
-    if bloom.layer() is not None:
-        bloom.layer().setCornerRadius_((h + 16) / 2.0)
-        bloom.layer().setBackgroundColor_(
-            CGColorCreateGenericRGB(0.22, 0.48, 0.95, 0.22)
-        )
-        try:
-            bloom.layer().setShadowOpacity_(1.0)
-            bloom.layer().setShadowRadius_(22.0)
-            bloom.layer().setShadowOffset_((0, 0))
-            bloom.layer().setShadowColor_(
-                CGColorCreateGenericRGB(0.30, 0.62, 1.0, 1.0)
-            )
-        except Exception:
-            pass
-    root.addSubview_(bloom)
-
+    # Single quiet pill — no bloom stack, no multi-shadow glow.
     pill = NSView.alloc().initWithFrame_(NSMakeRect(pad, pad, w, h))
     pill.setWantsLayer_(True)
     if pill.layer() is not None:
-        pill.layer().setCornerRadius_(h / 2.0)
+        pill.layer().setCornerRadius_(10.0)
         pill.layer().setBackgroundColor_(
-            CGColorCreateGenericRGB(0.06, 0.07, 0.10, 0.90)
+            CGColorCreateGenericRGB(0.07, 0.08, 0.11, 0.92)
         )
-        pill.layer().setBorderWidth_(1.2)
+        pill.layer().setBorderWidth_(1.0)
         pill.layer().setBorderColor_(
-            CGColorCreateGenericRGB(0.55, 0.80, 1.0, 0.85)
+            CGColorCreateGenericRGB(0.50, 0.78, 1.0, 0.55)
         )
-        try:
-            pill.layer().setShadowOpacity_(0.95)
-            pill.layer().setShadowRadius_(16.0)
-            pill.layer().setShadowOffset_((0, 0))
-            pill.layer().setShadowColor_(
-                CGColorCreateGenericRGB(0.28, 0.58, 1.0, 0.95)
-            )
-        except Exception:
-            pass
 
-    pip = NSView.alloc().initWithFrame_(NSMakeRect(18, (h - 9) / 2.0, 9, 9))
+    stop_w = 64.0
+    status_w = w - stop_w - 1.0
+    # Hit target = Stop zone only (right side of the pill).
+    root.pill_frame = (pad, pad, w, h)
+    root.stop_frame = (pad + status_w, pad, stop_w, h)
+
+    pip = NSView.alloc().initWithFrame_(NSMakeRect(12, (h - 7) / 2.0, 7, 7))
     pip.setWantsLayer_(True)
     if pip.layer() is not None:
-        pip.layer().setCornerRadius_(4.5)
+        pip.layer().setCornerRadius_(3.5)
         pip.layer().setBackgroundColor_(
             CGColorCreateGenericRGB(0.50, 0.82, 1.0, 1.0)
         )
-        try:
-            pip.layer().setShadowOpacity_(1.0)
-            pip.layer().setShadowRadius_(7.0)
-            pip.layer().setShadowOffset_((0, 0))
-            pip.layer().setShadowColor_(
-                CGColorCreateGenericRGB(0.45, 0.78, 1.0, 1.0)
-            )
-        except Exception:
-            pass
     pill.addSubview_(pip)
+    root._pip = pip
 
-    label = NSTextField.alloc().initWithFrame_(NSMakeRect(34, 8, w - 50, h - 16))
-    label.setStringValue_("Working · Stop")
-    label.setBezeled_(False)
-    label.setDrawsBackground_(False)
-    label.setEditable_(False)
-    label.setSelectable_(False)
-    label.setAlignment_(NSCenterTextAlignment)
+    status = NSTextField.alloc().initWithFrame_(NSMakeRect(26, 7, status_w - 32, h - 14))
+    status.setStringValue_(_status_text())
+    status.setBezeled_(False)
+    status.setDrawsBackground_(False)
+    status.setEditable_(False)
+    status.setSelectable_(False)
+    status.setAlignment_(NSLeftTextAlignment)
     try:
-        label.setTextColor_(NSColor.colorWithCalibratedWhite_alpha_(0.98, 0.98))
-        label.setFont_(NSFont.systemFontOfSize_weight_(13.0, 0.35))
+        status.setTextColor_(NSColor.colorWithCalibratedWhite_alpha_(0.92, 0.95))
+        status.setFont_(NSFont.systemFontOfSize_weight_(12.0, 0.30))
     except Exception:
         try:
-            label.setTextColor_(NSColor.whiteColor())
-            label.setFont_(NSFont.systemFontOfSize_(14.0))
+            status.setTextColor_(NSColor.whiteColor())
+            status.setFont_(NSFont.systemFontOfSize_(12.0))
         except Exception:
             pass
-    pill.addSubview_(label)
-    root.addSubview_(pill)
+    pill.addSubview_(status)
+    root._status = status
 
+    # Thin divider between status and Stop
+    div = NSView.alloc().initWithFrame_(NSMakeRect(status_w, 8, 1.0, h - 16))
+    div.setWantsLayer_(True)
+    if div.layer() is not None:
+        div.layer().setBackgroundColor_(
+            CGColorCreateGenericRGB(0.55, 0.80, 1.0, 0.28)
+        )
+    pill.addSubview_(div)
+
+    stop_lab = NSTextField.alloc().initWithFrame_(
+        NSMakeRect(status_w + 2, 7, stop_w - 4, h - 14)
+    )
+    stop_lab.setStringValue_("Stop")
+    stop_lab.setBezeled_(False)
+    stop_lab.setDrawsBackground_(False)
+    stop_lab.setEditable_(False)
+    stop_lab.setSelectable_(False)
+    stop_lab.setAlignment_(NSCenterTextAlignment)
+    try:
+        stop_lab.setTextColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(1.0, 0.72, 0.55, 0.98)
+        )
+        stop_lab.setFont_(NSFont.systemFontOfSize_weight_(12.0, 0.50))
+    except Exception:
+        try:
+            stop_lab.setTextColor_(NSColor.whiteColor())
+            stop_lab.setFont_(NSFont.systemFontOfSize_(12.0))
+        except Exception:
+            pass
+    pill.addSubview_(stop_lab)
+
+    root.addSubview_(pill)
     panel.setContentView_(root)
     panel.setFrame_display_(NSMakeRect(px, py, pw, ph), True)
     _banner = panel
     return panel
 
 
+def _status_text() -> str:
+    """Short chip status — driven app when known, else 'Agent'."""
+    name = (_driven_label or "").strip()
+    if name:
+        # Keep the pill readable on a laptop.
+        if len(name) > 18:
+            name = name[:17] + "…"
+        return name
+    return "Agent"
+
+
+def set_driven(label: str | None) -> None:
+    """Update the chip's status text (usually the app being driven)."""
+    global _driven_label
+    _driven_label = (label or "").strip()
+    _refresh_chip_labels()
+
+
+def _refresh_chip_labels() -> None:
+    if _banner is None:
+        return
+    try:
+        root = _banner.contentView()
+        status = getattr(root, "_status", None) if root is not None else None
+        if status is not None:
+            status.setStringValue_(_status_text())
+        _pulse_pip()
+    except Exception:
+        pass
+
+
+def _pulse_pip() -> None:
+    """Cheap liveliness cue while a control session is open."""
+    global _pip_phase
+    if _banner is None:
+        return
+    try:
+        root = _banner.contentView()
+        pip = getattr(root, "_pip", None) if root is not None else None
+        if pip is None or pip.layer() is None:
+            return
+        _pip_phase = (_pip_phase + 1) % 6
+        # Alternate alpha slightly so idle keep_alive feels alive.
+        a = 1.0 if _pip_phase < 3 else 0.45
+        from Quartz import CGColorCreateGenericRGB
+        pip.layer().setBackgroundColor_(
+            CGColorCreateGenericRGB(0.50, 0.82, 1.0, a)
+        )
+    except Exception:
+        pass
+
+
 def _banner_layout():
     """Chip centered on the window being driven (not the whole display)."""
     from AppKit import NSScreen
     screen = NSScreen.mainScreen()
-    pad = 18.0
-    w, h = 168.0, 36.0
+    pad = 14.0
+    # Wider than the old mono-label so status + Stop both read.
+    w, h = 220.0, 34.0
     if screen is None:
         return 400.0, 90.0, w + 2 * pad, h + 2 * pad, w, h, pad
     vf = screen.visibleFrame()
@@ -555,6 +621,7 @@ def keep_alive(seconds: float) -> None:
                 _halo.orderFrontRegardless()
             if _banner is not None:
                 _banner.orderFrontRegardless()
+                _pulse_pip()
             if _frame is not None:
                 _frame.orderFrontRegardless()
             try:
@@ -569,7 +636,7 @@ def keep_alive(seconds: float) -> None:
 
 
 def show(x: float | None = None, y: float | None = None) -> bool:
-    global _active, _mode
+    global _active, _mode, _session_t0
     if _stopped:
         return False
     if not enabled():
@@ -602,15 +669,20 @@ def show(x: float | None = None, y: float | None = None) -> bool:
         ban.orderFrontRegardless()
 
         _active = True
+        if _session_t0 <= 0:
+            _session_t0 = time.monotonic()
         _place_halo(x, y, _SIZE)
         try:
             from . import windows as _win
             front = _win.frontmost_app() or {}
             name = front.get("name")
             if name and name.lower() not in ("ghostty", "terminal", "iterm2"):
+                set_driven(name)
                 ring_window(name)
+            else:
+                _refresh_chip_labels()
         except Exception:
-            pass
+            _refresh_chip_labels()
         _pump(n=10, seconds=0.03)
         return True
     except Exception as e:
@@ -669,6 +741,7 @@ def click_flash(x: float, y: float) -> None:
 
 def hide() -> None:
     global _halo, _banner, _frame, _active, _last_cg, _frame_target
+    global _driven_label, _session_t0, _pip_phase
     _active = False
     try:
         if _halo is not None:
@@ -684,13 +757,25 @@ def hide() -> None:
         pass
     _last_cg = None
     _frame_target = None
+    _driven_label = ""
+    _session_t0 = 0.0
+    _pip_phase = 0
     _pump(n=3, seconds=0.01)
 
 
 def ensure() -> None:
+    """Show presence if enabled and not already up. Cheap no-op when active.
+
+    Mutating helpers call this so AX-only paths (click_text / type / hotkey)
+    still surface the Stop chip — without it, the user cannot abort.
+    """
     if not enabled():
         return
+    if _stopped:
+        return
     if _active:
+        # Keep labels fresh without rebuilding panels.
+        _pulse_pip()
         return
     show()
 
@@ -817,6 +902,12 @@ def ring_window(app: str | int | None = None, window_id: int | None = None) -> b
         pad = 1.25
         x, y, w, h = x - pad, y - pad, w + 2 * pad, h + 2 * pad
         _frame_target = (x, y, w, h)
+        # Prefer a human-readable owner name on the chip.
+        owner = (fr.get("app") or "").strip()
+        if owner:
+            set_driven(owner)
+        elif isinstance(app, str) and app.strip():
+            set_driven(app.strip())
         cx, cy, cw, ch = _cg_rect_to_cocoa(x, y, w, h)
         _ensure_app()
         from AppKit import NSMakeRect, NSPanel, NSWindowStyleMaskBorderless

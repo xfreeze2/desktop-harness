@@ -89,7 +89,7 @@ This is the same HID path assistive tools and automation frameworks use. **Acces
 | Wanted | Today |
 |--------|--------|
 | Act without stealing focus | Foreground HID for now; background path planned |
-| Fancy branded cursor chrome | Optional simple blue ring |
+| Fancy branded cursor chrome | Ice halo + status\|Stop chip (driven app) |
 | Parallel multi-app sessions | Single session |
 
 ---

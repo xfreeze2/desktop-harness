@@ -487,13 +487,22 @@ def find(
     return out
 
 
+def _invalidate_walk_cache() -> None:
+    """Drop cached AX walks after a mutation so the next read is live."""
+    _walk_cache.clear()
+
+
 def press_element(el) -> bool:
     err = AXUIElementPerformAction(el, kAXPressAction)
+    if err == kAXErrorSuccess:
+        _invalidate_walk_cache()
     return err == kAXErrorSuccess
 
 
 def set_value(el, value: str) -> bool:
     err = AXUIElementSetAttributeValue(el, kAXValueAttribute, value)
+    if err == kAXErrorSuccess:
+        _invalidate_walk_cache()
     return err == kAXErrorSuccess
 
 

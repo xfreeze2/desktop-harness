@@ -87,6 +87,45 @@ def run_selftest() -> int:
         by_pid = H.find_app(one["pid"])
         assert by_pid and by_pid["pid"] == one["pid"]
 
+    def _find_app_short_refuse():
+        # Substring under 3 chars must not guess an app.
+        assert H.find_app("a") is None
+        assert H.find_app("xy") is None
+
+    def _begin_end_control_api():
+        H.resume_control()
+        # Presence may be unavailable off-Mac / headless — API must still return.
+        H.end_control()
+        assert callable(H.begin_control)
+        assert callable(H.end_control)
+
+    def _run_plan_new_ops():
+        out = H.run_plan([
+            {"op": "wait", "seconds": 0.02},
+            {"op": "scroll", "dy": 0},
+            {"op": "end_control"},
+        ], stop_on_error=True)
+        assert len(out) == 3 and all(r.get("ok") for r in out)
+
+    def _walk_cache_invalidates():
+        from . import ax as A
+        A._walk_cache[(0, 1, 1, True, False)] = (0.0, [{"role": "AXButton"}])
+        A._invalidate_walk_cache()
+        assert A._walk_cache == {}
+
+    def _status_text_shape():
+        from . import presence as p
+        prev = p._driven_label
+        try:
+            p._driven_label = ""
+            assert p._status_text() == "Agent"
+            p._driven_label = "Notes"
+            assert p._status_text() == "Notes"
+            p._driven_label = "A" * 40
+            assert len(p._status_text()) <= 20
+        finally:
+            p._driven_label = prev
+
     def _frame_filter():
         assert frame_on_screen({"x": 100, "y": 100, "w": 50, "h": 50})
         assert not frame_on_screen({"x": 50, "y": 50, "w": 0, "h": 10})
@@ -299,6 +338,11 @@ def run_selftest() -> int:
         ("screenshot", _shot),
         ("media_transport api", _media_api),
         ("find_app ranking + pid", _find_app_ranking),
+        ("find_app short refuse", _find_app_short_refuse),
+        ("begin/end control api", _begin_end_control_api),
+        ("run_plan new ops", _run_plan_new_ops),
+        ("walk cache invalidate", _walk_cache_invalidates),
+        ("presence status text", _status_text_shape),
         ("frame_on_screen filter", _frame_filter),
         ("window_frame + win_to_global", _window_frame_map),
         ("run_plan wait", _run_plan_wait),

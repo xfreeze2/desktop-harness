@@ -111,6 +111,15 @@ def run_loop(
     wid = int(window_id) if window_id is not None else None
     app_name = None if isinstance(app, int) else app
 
+    # Surface Stop before the first frame — tap/hold use pump=False.
+    try:
+        _presence.ensure()
+        if app_name:
+            _presence.set_driven(str(app_name))
+            _presence.ring_window(app_name)
+    except Exception:
+        pass
+
     try:
         while time.monotonic() < deadline:
             if max_frames is not None and frames >= max_frames:
@@ -151,8 +160,15 @@ def run_loop(
                 break
             slept = time.monotonic() - now
             remain = period - slept
-            if remain > 0.001:
-                time.sleep(remain)
+            # Chunked sleep so Stop still lands between frames when hz is low.
+            while remain > 0.001:
+                if _presence.stopped():
+                    raise _CS("user stopped desktop-harness from the Working chip")
+                chunk = min(0.05, remain)
+                time.sleep(chunk)
+                remain -= chunk
+                if remain > 0.02:
+                    _presence.poll(deep=False)
     finally:
         if on_stop == "release":
             _input.release_keys()
