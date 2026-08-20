@@ -111,6 +111,8 @@ Note: `AXPress` works on a **background** app without focus steal — the AX pat
 | **v0.1–0.3** | AX + mouse + daemon + safety + media helpers |
 | **v0.4** | selftest, install.sh, public docs, Grok-first positioning |
 | **v0.5** | Live **Agent view** monitor (any app) + optional Stage Chrome for web |
+| **v0.6** | Reflex `run_loop`, presence ice frame + Stop chip, fail-closed clicks |
+| **v0.6.6** | Control-session presence (AX-only too), status\|Stop chip, loop skill |
 | **later** | Background focus-free control, optional MCP, permission onboarding app |
 
 ---
